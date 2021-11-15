@@ -6,3 +6,5 @@
     2. [Основы Git](02-git-02-base) – remotes, tags, branches, ide.
     3. [Ветвления в Git](02-git-03-branching) – merge vs rebase, hooks
     4. [Инструменты Git](02-git-04-tools) – reflog, stash, clean, grep, подпись коммитов.
+3. Основы системного администрирования
+    1. [Работа в терминале, лекция 1](03-sysadmin-01-terminal) - настройка песочницы
