@@ -4,7 +4,7 @@
 2. [x] Установите средство автоматизации [Hashicorp Vagrant](https://www.vagrantup.com/).
 3. [x] В вашем основном окружении подготовьте удобный для дальнейшей работы терминал: `iTerm2`.
 4. [x] С помощью базового файла конфигурации запустите Ubuntu 20.04 в VirtualBox посредством Vagrant.
-    - для того чтобы стартовало на macOS Monterey прописал в Vagrantfil: `vb.gui = true` (см.
+    - для того чтобы стартовало на macOS Monterey, прописал в `Vagrantfile`: `vb.gui = true` (см.
       issue: [macOS Monterey and VirtualBox 6.1.28 #12557](https://github.com/hashicorp/vagrant/issues/12557))
 5. [x] Ознакомьтесь с графическим интерфейсом VirtualBox, посмотрите как выглядит виртуальная машина, которую создал для
    вас Vagrant, какие аппаратные ресурсы ей выделены. 
