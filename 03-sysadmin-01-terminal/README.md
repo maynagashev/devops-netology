@@ -11,12 +11,12 @@
       - **Какие ресурсы выделены по-умолчанию?**
          - 2 процессора
          - 1024MB памяти
-```bash
-vagrant@vagrant:~$ cat /proc/meminfo | grep MemTotal
-MemTotal:        1004584 kB
-vagrant@vagrant:~$ nproc --all
-2
-```
+        ```bash
+        vagrant@vagrant:~$ cat /proc/meminfo | grep MemTotal
+        MemTotal:        1004584 kB
+        vagrant@vagrant:~$ nproc --all
+        2
+        ```
 6. [ ] Ознакомьтесь с возможностями конфигурации VirtualBox через
    Vagrantfile: [документация](https://www.vagrantup.com/docs/providers/virtualbox/configuration.html). 
       - **Как добавить оперативной памяти или ресурсов процессора виртуальной машине?**
