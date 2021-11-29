@@ -44,13 +44,93 @@ openat(AT_FDCWD, "/usr/share/misc/magic.mgc", O_RDONLY) = 3</usr/lib/file/magic.
 
 
 ### 3. Предположим, приложение пишет лог в текстовый файл. Этот файл оказался удален (deleted в lsof), однако возможности сигналом сказать приложению переоткрыть файлы или просто перезапустить приложение – нет. Так как приложение продолжает писать в удаленный файл, место на диске постепенно заканчивается. Основываясь на знаниях о перенаправлении потоков предложите способ обнуления открытого удаленного файла (чтобы освободить место на файловой системе).
+
+```bash
+# создаем долгоиграющий процесс который пишет в ping.log
+vagrant@vagrant:~$ ping ya.ru > ping.log &
+[1] 5476
+# проверяем наличие файла и удаляем его
+vagrant@vagrant:~$ ll ping.log
+-rw-rw-r-- 1 vagrant vagrant 1015 Nov 29 13:46 ping.log
+vagrant@vagrant:~$ unlink ping.log
+# смотрим открытые файлы процесса (сразу с пометкой deleted)
+# - в третьей колонке справа 5134 - текущий размер файла
+# - 1w - номер файлового дескриптора процесса открытый на запись 
+root@vagrant:~# lsof -p 5476 | grep deleted
+ping    5476 vagrant    1w   REG  253,0     5134 131112 /home/vagrant/ping.log (deleted)
+# проверяем файл повторно размер увеличивается 13457
+root@vagrant:~# lsof -p 5476 | grep deleted
+ping    5476 vagrant    1w   REG  253,0    13457 131112 /home/vagrant/ping.log (deleted)
+# проверяем ссылку на файл оставшуюся в дескрипторах процесса
+root@vagrant:~# ll /proc/5476/fd/1
+l-wx------ 1 root root 64 Nov 29 13:47 /proc/5476/fd/1 -> '/home/vagrant/ping.log (deleted)'
+
+# очищаем файл по ссылке (дескриптору) - вариантов много (true> , :> , echo>) - смысл в том чтобы записать в файл пустые данные
+root@vagrant:~# true > /proc/5476/fd/1
+# проверяем что размер обнулился
+root@vagrant:~# lsof -p 5476 | grep deleted
+ping    5476 vagrant    1w   REG  253,0       71 131112 /home/vagrant/ping.log (deleted)
+```
+
+Тем самым файл можно обнулить используя **сохраненную в дескрипторе** ссылку (которую по факту использует и само приложение для записи).
+- достаточно записать в дескриптор пустые данные перенаправлением `true > /proc/5476/fd/1`
+- можно так же использовать команду `truncate`, обрезав файл до нужного размера:
+```bash
+root@vagrant:~# truncate -s 100 /proc/5476/fd/1 && lsof -p 5476 | grep deleted
+ping    5476 vagrant    1w   REG  253,0      100 131112 /home/vagrant/ping.log (deleted)
+```
+
 ### 4. Занимают ли зомби-процессы какие-то ресурсы в ОС (CPU, RAM, IO)?
+
+**Зомби-процесс** – это процесс уже завершивший свое исполнение (системным вызовом `exit`), родитель которого еще не обработал закрытие дочернего процесса (системный вызов `wait`).
+
+Зомби **не потребляют основные ресурсы системы**. Занимают только место в списке процессов (которое лимитировано). 
+
+Лимиты текущего пользователя можно посмотреть с помощью `ulimit`:
+```bash
+vagrant@vagrant:~$ ulimit -a
+core file size          (blocks, -c) 0
+data seg size           (kbytes, -d) unlimited
+scheduling priority             (-e) 0
+file size               (blocks, -f) unlimited
+pending signals                 (-i) 7595
+max locked memory       (kbytes, -l) 65536
+max memory size         (kbytes, -m) unlimited
+open files                      (-n) 1024
+pipe size            (512 bytes, -p) 8
+POSIX message queues     (bytes, -q) 819200
+real-time priority              (-r) 0
+stack size              (kbytes, -s) 8192
+cpu time               (seconds, -t) unlimited
+max user processes              (-u) 7595
+virtual memory          (kbytes, -v) unlimited
+file locks                      (-x) unlimited
+```
+
 ### 5. В iovisor BCC есть утилита `opensnoop`:
     ```bash
     root@vagrant:~# dpkg -L bpfcc-tools | grep sbin/opensnoop
     /usr/sbin/opensnoop-bpfcc
     ```
-   На какие файлы вы увидели вызовы группы `open` за первую секунду работы утилиты? Воспользуйтесь пакетом `bpfcc-tools` для Ubuntu 20.04. Дополнительные [сведения по установке](https://github.com/iovisor/bcc/blob/master/INSTALL.md).
+   **На какие файлы вы увидели вызовы группы `open` за первую секунду работы утилиты? Воспользуйтесь пакетом `bpfcc-tools` для Ubuntu 20.04. Дополнительные [сведения по установке](https://github.com/iovisor/bcc/blob/master/INSTALL.md).**
+
+`opensnoop-bpfcc` - позволяет отслеживать открытия файлов процессами в реальном времени, использует подсистему ядра Linux: **eBPF/bcc**.
+
+```bash
+root@vagrant:~# opensnoop-bpfcc
+PID    COMM               FD ERR PATH
+832    vminfo              6   0 /var/run/utmp
+607    dbus-daemon        -1   2 /usr/local/share/dbus-1/system-services
+607    dbus-daemon        18   0 /usr/share/dbus-1/system-services
+607    dbus-daemon        -1   2 /lib/dbus-1/system-services
+607    dbus-daemon        18   0 /var/lib/snapd/dbus-1/system-services/
+1974   bash                3   0 /etc/ld.so.cache
+1974   bash                3   0 /lib/x86_64-linux-gnu/libtinfo.so.6
+1974   bash                3   0 /lib/x86_64-linux-gnu/libdl.so.2
+1974   bash                3   0 /lib/x86_64-linux-gnu/libc.so.6
+1974   bash                3   0 /dev/tty
+```
+
 ### 6. Какой системный вызов использует `uname -a`? Приведите цитату из man по этому системному вызову, где описывается альтернативное местоположение в `/proc`, где можно узнать версию ядра и релиз ОС.
 ### 7. Чем отличается последовательность команд через `;` и через `&&` в bash? Например:
     ```bash
