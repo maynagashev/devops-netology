@@ -132,6 +132,29 @@ PID    COMM               FD ERR PATH
 ```
 
 ### 6. Какой системный вызов использует `uname -a`? Приведите цитату из man по этому системному вызову, где описывается альтернативное местоположение в `/proc`, где можно узнать версию ядра и релиз ОС.
+
+Одноименный системный вызов `uname`.
+```bash
+vagrant@vagrant:~$ strace -f -y -e uname uname -a
+uname({sysname="Linux", nodename="vagrant", ...}) = 0
+uname({sysname="Linux", nodename="vagrant", ...}) = 0
+uname({sysname="Linux", nodename="vagrant", ...}) = 0
+Linux vagrant 5.4.0-80-generic #90-Ubuntu SMP Fri Jul 9 22:49:44 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux
++++ exited with 0 +++
+```
+
+Отдельные части `uname` доступны в `/proc/sys/kernel/{ostype, hostname, osrelease, version, domainname}`
+```bash
+vagrant@vagrant:~$ man 2 uname | grep /proc
+       Part of the utsname information is also accessible via /proc/sys/kernel/{ostype, hostname, osrelease, version, domainname}.
+vagrant@vagrant:~$ cat /proc/sys/kernel/ostype
+Linux
+vagrant@vagrant:~$ cat /proc/sys/kernel/osrelease
+5.4.0-80-generic
+vagrant@vagrant:~$ cat /proc/sys/kernel/version
+#90-Ubuntu SMP Fri Jul 9 22:49:44 UTC 2021
+```
+
 ### 7. Чем отличается последовательность команд через `;` и через `&&` в bash? Например:
     ```bash
     root@netology1:~# test -d /tmp/some_dir; echo Hi
@@ -139,8 +162,44 @@ PID    COMM               FD ERR PATH
     root@netology1:~# test -d /tmp/some_dir && echo Hi
     root@netology1:~#
     ```
-   Есть ли смысл использовать в bash `&&`, если применить `set -e`?
+
+- `;` - команды выполняются последовательно не зависимо от результата 
+- `&&` - логическое "И", выполнение прекращается на команде вернувшей статус ошибки, следующая команда не выполняется.
+    Иначе говоря: команда справа от `&&` выполнится, только если слева от `&&` все отработало без ошибок.
+
+**Есть ли смысл использовать в bash `&&`, если применить `set -e`?**
+
+Имеет, т.к. при `set -e` оболочка не всегда завершает свою работу: 
+> The shell does not exit if the command that fails is part of the command list immediately following a `while` or `until` keyword, part of the test in an `if` statement, part of any command executed in a `&&` or `||` list except the command following the final `&&` or `||`, any command in a pipeline but the last, or if the command’s return status is being inverted with `!`. If a compound command other than a subshell returns a non-zero status because a command failed while -e was being ignored, the shell does not exit. A trap on `ERR`, if set, is executed before the shell exits.
+
 ### 8. Из каких опций состоит режим bash `set -euxo pipefail` и почему его хорошо было бы использовать в сценариях?
+
+- `-e` - немедленное завершение пайплайна (выход из оболочки) при ошибках
+- `-u` - выдавать ошибку при попытке использования не заданных переменных и параметров
+- `-x` - печать аргументов команд (после того как они были раскрыты, но до того как команда запущена) для отладки
+- `-o pipefail` - код пайплайна будет соответствовать коду ошибки последней команды с ошибкой, либо "0" если ошибок в пайплайне не было. По умолчанию выключено.
+
+В сценариях удобно использовать, т.к. при наличии ошибок сценарий остановится на том месте, где возникла ошибка (fail fast) и не будет выполнять следующие команды, пока ошибка не будет устранена.
+Кроме этого выводится отладка по запускаемым командам и возвращается код последней ошибки, что позволяет быстро локализовать и решить проблему.
+
 ### 9. Используя `-o stat` для `ps`, определите, какой наиболее часто встречающийся статус у процессов в системе. В `man ps` ознакомьтесь (`/PROCESS STATE CODES`) что значат дополнительные к основной заглавной буквы статуса процессов. Его можно не учитывать при расчете (считать S, Ss или Ssl равнозначными).
+
+```bash
+vagrant@vagrant:~$ ps --no-headers axo stat | sort | uniq -c | sort -r
+     44 I<    # процессы ядра в состоянии покоя (высокий приоритет)
+     35 S     # в состоянии сна (ожидании событий)
+     16 Ss    # в состоянии сна - лидеры сессии
+     12 I     # процессы ядра (обычный приоритет)
+      5 Ssl   # в состоянии сна - лидеры сессии - многопоточные
+      5 S+    # в состоянии сна - выполняющиеся на переднем плане tty
+      2 SN    # в состоянии сна - c низким приоритетом (nice)
+      1 Ss+   # в состоянии сна - лидеры сессии - на переднем плане tty
+      1 Sl    # в состоянии сна - многопоточные
+      1 SLsl  # в состоянии сна - c блокировкой страниц в ОЗУ - лидер сессии - многопоточный
+      1 S<s   # в состоянии сна - лидер сессии - с высоким приортетом 
+      1 R+    # в работе - на переднем плане tty
+```
+
+Наиболее часто встречающийся статус - `S` - **в состоянии прерываемого сна**, которые находятся в ожидании событий (команд/сигналов).
 
  
