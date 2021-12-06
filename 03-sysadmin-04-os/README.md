@@ -6,16 +6,44 @@
     * предусмотрите возможность добавления опций к запускаемому процессу через внешний файл (посмотрите, например, на `systemctl cat cron`),
     * удостоверьтесь, что с помощью systemctl процесс корректно стартует, завершается, а после перезагрузки автоматически поднимается.
 
-1. Накатил рекомендуемую [ansible роль](https://github.com/cloudalchemy/ansible-node-exporter) в виртуалке, пришлось разобраться с `vagrant provision`.
-   - удалил из автозагрузки `systemctl disable node_exporter`, удостоверился что не стартует при запуске
-   - добавил в автозагрузку `systemctl enable node_exporter`, удостоверился что стартует при запуске
+1. Создал юзера, группу, юнит-файл и добавил автозагрузку:
 ```bash
-vagrant@vagrant:~$ systemctl cat node_exporter
-# /etc/systemd/system/node_exporter.service
-#
-# Ansible managed
-#
+```bash
+root@vagrant:/home/vagrant/node_exporter-1.3.1.linux-amd64# nano /etc/systemd/system/node_exporter.service
+root@vagrant:/home/vagrant/node_exporter-1.3.1.linux-amd64# systemctl status node_exporter
+● node_exporter.service - Prometheus Node Exporter
+     Loaded: loaded (/etc/systemd/system/node_exporter.service; disabled; vendor preset: enabled)
+     Active: inactive (dead)
+root@vagrant:/home/vagrant/node_exporter-1.3.1.linux-amd64# systemctl start  node_exporter
+root@vagrant:/home/vagrant/node_exporter-1.3.1.linux-amd64# systemctl status node_exporter
+● node_exporter.service - Prometheus Node Exporter
+     Loaded: loaded (/etc/systemd/system/node_exporter.service; disabled; vendor preset: enabled)
+     Active: active (running) since Mon 2021-12-06 15:25:54 UTC; 2s ago
+   Main PID: 12920 (node_exporter)
+      Tasks: 5 (limit: 2278)
+     Memory: 2.6M
+     CGroup: /system.slice/node_exporter.service
+             └─12920 /usr/local/bin/node_exporter
 
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=thermal_zone
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=time
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=timex
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=udp_queues
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=uname
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=vmstat
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=xfs
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.145Z caller=node_exporter.go:115 level=info collector=zfs
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.146Z caller=node_exporter.go:199 level=info msg="Listening on" address=:9100
+Dec 06 15:25:54 vagrant node_exporter[12920]: ts=2021-12-06T15:25:54.146Z caller=tls_config.go:195 level=info msg="TLS is disabled." http2=false
+
+root@vagrant:/home/vagrant/node_exporter-1.3.1.linux-amd64# systemctl enable  node_exporter
+Created symlink /etc/systemd/system/multi-user.target.wants/node_exporter.service → /etc/systemd/system/node_exporter.service.
+```
+
+2. Для дополнительных опций добавил `$NODE_EXPORTER_EXTRA_OPTS` по аналогии с юнит-файлом крона:
+```bash
+root@vagrant:/home/vagrant/node_exporter-1.3.1.linux-amd64# systemctl cat node_exporter
+# /etc/systemd/system/node_exporter.service
 [Unit]
 Description=Prometheus Node Exporter
 After=network-online.target
@@ -24,30 +52,11 @@ After=network-online.target
 Type=simple
 User=node-exp
 Group=node-exp
-ExecStart=/usr/local/bin/node_exporter $NODE_EXPORTER_EXTRA_OPTS \
-    --collector.systemd \
---collector.textfile \
-    --collector.textfile.directory=/var/lib/node_exporter \
-    --web.listen-address=0.0.0.0:9100 \
-    --web.telemetry-path=/metrics
-
-SyslogIdentifier=node_exporter
-Restart=always
-RestartSec=1
-StartLimitInterval=0
-
-ProtectHome=yes
-NoNewPrivileges=yes
-
-ProtectSystem=strict
-ProtectControlGroups=true
-ProtectKernelModules=true
-ProtectKernelTunables=yes
+ExecStart=/usr/local/bin/node_exporter $NODE_EXPORTER_EXTRA_OPTS
 
 [Install]
 WantedBy=multi-user.target
 ```
-2. Для дополнительных опций добавил `$NODE_EXPORTER_EXTRA_OPTS` по аналогии с юнит-файлом крона.
 3. Процесс корректно завершается и стартует, в том числе после перезагрузки системы:
 ```bash
 vagrant@vagrant:~$ systemctl start node_exporter
@@ -59,24 +68,11 @@ Password:
 vagrant@vagrant:~$ systemctl status node_exporter
 ● node_exporter.service - Prometheus Node Exporter
      Loaded: loaded (/etc/systemd/system/node_exporter.service; enabled; vendor preset: enabled)
-     Active: active (running) since Mon 2021-12-06 05:08:21 UTC; 5s ago
-   Main PID: 3452 (node_exporter)
-      Tasks: 5 (limit: 2278)
-     Memory: 3.2M
-     CGroup: /system.slice/node_exporter.service
-             └─3452 /usr/local/bin/node_exporter --collector.systemd --collector.textfile --collector.textfile.directory=/var/lib/node_exporter --web.listen-address=0.0.0.0:9100 --web.telemetry-path=/metri>
-
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=thermal_zone
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=time
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=timex
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=udp_queues
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=uname
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=vmstat
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=xfs
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:115 level=info collector=zfs
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.580Z caller=node_exporter.go:199 level=info msg="Listening on" address=0.0.0.0:9100
-Dec 06 05:08:21 vagrant node_exporter[3452]: ts=2021-12-06T05:08:21.581Z caller=tls_config.go:195 level=info msg="TLS is disabled." http2=false
+     Active: active (running) since Mon 2021-12-06 15:47:27 UTC; 4s ago
+   Main PID: 1201 (node_exporter)
+...
 ```
+
 
 ### 2. Ознакомьтесь с опциями node_exporter и выводом `/metrics` по-умолчанию. Приведите несколько опций, которые вы бы выбрали для базового мониторинга хоста по CPU, памяти, диску и сети.
 
