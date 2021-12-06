@@ -94,7 +94,6 @@ node_load15 0
 node_load5 0
 ```
 
-
 ### 3. Установите в свою виртуальную машину [Netdata](https://github.com/netdata/netdata). Воспользуйтесь [готовыми пакетами](https://packagecloud.io/netdata/netdata/install) для установки (`sudo apt install -y netdata`). После успешной установки:
     * в конфигурационном файле `/etc/netdata/netdata.conf` в секции [web] замените значение с localhost на `bind to = 0.0.0.0`,
     * добавьте в Vagrantfile проброс порта Netdata на свой локальный компьютер и сделайте `vagrant reload`:
@@ -105,10 +104,95 @@ node_load5 0
 
    После успешной перезагрузки в браузере *на своем ПК* (не в виртуальной машине) вы должны суметь зайти на `localhost:19999`. Ознакомьтесь с метриками, которые по умолчанию собираются Netdata и с комментариями, которые даны к этим метрикам.
 
+![](netdata.png)
+
 ### 4. Можно ли по выводу `dmesg` понять, осознает ли ОС, что загружена не на настоящем оборудовании, а на системе виртуализации?
+
+Можно, например по следуюшим сообщениям:
+```bash
+vagrant@vagrant:~$ dmesg | grep virtual
+[    0.003470] CPU MTRRs all blank - virtualized system.
+[    0.718149] Booting paravirtualized kernel on KVM
+[    5.770122] systemd[1]: Detected virtualization oracle.
+```
 
 ### 5. Как настроен sysctl `fs.nr_open` на системе по-умолчанию? Узнайте, что означает этот параметр. Какой другой существующий лимит не позволит достичь такого числа (`ulimit --help`)?
 
+`fs.nr_open` - лимит на количество открытых дескрипторов
+```bash
+vagrant@vagrant:~$ /sbin/sysctl -n fs.nr_open
+1048576
+```
+
+`ulimit -n` - максимальное количество открытых файлов. Мягкое ограничение можно превосходить вплоть до значения соответствующего жесткого ограничения.
+```bash
+vagrant@vagrant:~$ ulimit -n
+1024
+```
+
+`ulimit -Hn` - жесткое ограничение после установки превосходить нельзя.
+```bash
+vagrant@vagrant:~$ ulimit -Hn
+1048576
+```
+
 ### 6. Запустите любой долгоживущий процесс (не `ls`, который отработает мгновенно, а, например, `sleep 1h`) в отдельном неймспейсе процессов; покажите, что ваш процесс работает под PID 1 через `nsenter`. Для простоты работайте в данном задании под root (`sudo -i`). Под обычным пользователем требуются дополнительные опции (`--map-root-user`) и т.д.
 
+Делаем всё под root:
+```bash
+vagrant@vagrant:~$ sudo -i
+```
+
+Запускаем sleep через unshare:
+```bash
+root@vagrant:~# unshare -f --pid --mount-proc sleep 1h
+bg
+^Z
+[1]+  Stopped                 unshare -f --pid --mount-proc sleep 1h
+root@vagrant:~# ps aux
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root        9394  0.0  0.0   8080   592 pts/2    T    16:27   0:00 unshare -f --pid --mount-proc sleep 1h
+root        9395  0.0  0.0   8076   528 pts/2    S    16:27   0:00 sleep 1h
+root        9396  0.0  0.3  11492  3396 pts/2    R+   16:27   0:00 ps aux
+```
+
+Заходим в процесс:
+```bash
+root@vagrant:~# nsenter -t 9395 -p -m
+root@vagrant:/# ps
+    PID TTY          TIME CMD
+      1 pts/2    00:00:00 sleep
+      2 pts/2    00:00:00 bash
+      9 pts/2    00:00:00 ps
+```
+
 ### 7. Найдите информацию о том, что такое `:(){ :|:& };:`. Запустите эту команду в своей виртуальной машине Vagrant с Ubuntu 20.04 (**это важно, поведение в других ОС не проверялось**). Некоторое время все будет "плохо", после чего (минуты) – ОС должна стабилизироваться. Вызов `dmesg` расскажет, какой механизм помог автоматической стабилизации. Как настроен этот механизм по-умолчанию, и как изменить число процессов, которое можно создать в сессии?
+
+
+Это так называемая `fork bomb` - рекурсивно создает форки процесса в фоне (`&`), до тех пор пока не упрется в лимиты создания процессов для юзера.
+
+`dmesg` сообщает:
+```bash
+[Mon Dec  6 16:54:52 2021] cgroup: fork rejected by pids controller in /user.slice/user-1000.slice/session-5.scope
+```
+
+Судя по сообщению сработал механизм `сgroups` - это способ ограничить ресурсы внутри контрольной группы процессов, в данном случае в группу `user.slice`.  
+
+Если во время запуска рекурсивной функции, открыть `systemd-cgtop`, то видно как растет кол-во задач в группе `user.slice`, затем стабилизируется и снижается.
+```bash
+vagrant@vagrant:~$ systemd-cgtop
+Control Group                                                                                                                                                                                                                                                                        Tasks   %CPU   Memory  Input/s Output/s
+/                         5179  131.4     1.7G        -        -
+...
+user.slice                5010      -     1.4G        -        -
+```
+
+- Ограничение по таскам для юзеров настраивается в `/usr/lib/systemd/system/user-.slice.d/10-defaults.conf` (общая настройка):
+```bash
+vagrant@vagrant:~$ cat /usr/lib/systemd/system/user-.slice.d/10-defaults.conf
+...
+[Slice]
+TasksMax=33%
+```
+- По дефолту стоит `TasksMax=33%` (вероятно от лимита тасков для всех юзеров).
+- Для изменения лимита, следует изменить параметр `TasksMax`, выставить новое значение, либо убрать ограничение (`TasksMax=infinity`), подробнее в [мане user@.service](https://www.freedesktop.org/software/systemd/man/user@.service.html) и в [документации suse](https://www.suse.com/support/kb/doc/?id=000019044).
